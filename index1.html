@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NYXPERT — Microparticle Detector (Prototype)</title>
+  <style>
+        .modal {
+      display: none;
+      position: fixed;
+      z-index: 2000;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+    }
+
+    .modal-content {
+      background: #111;
+      margin: 5% auto;
+      padding: 20px;
+      border-radius: 10px;
+      width: 80%;
+      max-width: 900px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.7);
+    }
+
+    .close {
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      color: #fff;
+    }
+    .close:hover {
+      color: #f00;
+    }
+
+        /* Dropdown container */
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    /* Dropdown menu hidden by default */
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      top: 100%; /* below the button */
+      left: 0;
+      background-color: #222;
+      min-width: 160px;
+      border-radius: 6px;
+      box-shadow: 0px 4px 12px rgba(0,0,0,0.5);
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    /* Dropdown menu items */
+    .dropdown-content a {
+      color: #fff;
+      padding: 10px 16px;
+      text-decoration: none;
+      display: block;
+      font-size: 14px;
+    }
+
+    .dropdown-content a:hover {
+      background-color: #333;
+    }
+
+    /* Show menu when active */
+    .dropdown.show .dropdown-content {
+      display: block;
+    }
+
+    .btn {
+      background: #222;        /* dark background */
+      color: #fff;
+      border: none;
+      padding: 8px 16px;       /* consistent padding */
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      min-width: 80px;         /* stops shrinking */
+      text-align: center;
+    }
+
+    .btn:hover {
+      background: #333;        /* hover effect */
+    }
+
+    /* Graph preview dropdown */
+    .plot-preview {
+      position: absolute;
+      top: 100%; /* show below button */
+      left: 0;
+      background: var(--panel-bg);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 10px;
+      display: none;
+      gap: 10px;
+      margin-top: 6px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      z-index: 50;
+    }
+
+    .plot-preview img {
+      width: 80px;
+      height: 60px;
+      border-radius: 6px;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: #111;
+    }
+
+    /* Show dropdown when hovering PLOT */
+    .plot-btn-wrapper:hover .plot-preview {
+      display: flex;
+    }
+
+    :root{
+      --bg:#0f1724; /* deep navy */
+      --surface:#0f2330; /* card */
+      --muted:#9aa7b2;
+      --accent:#00b4a2; /* teal */
+      --accent-2:#7dd3fc; /* sky */
+      --panel-bg:#0b1220;
+      --glass: rgba(255,255,255,0.03);
+      --radius:12px;
+      --gap:12px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      color: #e6eef6;
+    }
+
+    *{box-sizing:border-box}
+    body{margin:0; background:linear-gradient(180deg,var(--bg),#071018); min-height:100vh;}
+
+    header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px;background:linear-gradient(90deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-bottom:1px solid rgba(255,255,255,0.04)}
+
+    .brand{display:flex;align-items:center;gap:14px}
+    .brand h1{font-size:18px;margin:0;letter-spacing:1px}
+
+    .top-actions{display:flex;gap:8px;align-items:center}
+    .btn{background:var(--glass);border:1px solid rgba(255,255,255,0.04);padding:8px 12px;border-radius:8px;color:var(--muted);font-weight:600;cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#012;box-shadow:0 6px 18px rgba(0,180,162,0.12);border:none}
+
+    /* secondary toolbar */
+    .toolbar{display:flex;gap:8px;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,0.02);align-items:center}
+    .toolbar .chip{background:rgba(255,255,255,0.02);padding:6px 10px;border-radius:900px;font-size:13px;color:var(--muted);border:1px solid rgba(255,255,255,0.02);cursor:pointer}
+
+    .container{display:grid;grid-template-columns:240px 1fr;padding:18px;gap:var(--gap);}
+
+    /* Left sidebar as column so Analyse sits at bottom */
+    .sidebar{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);min-height:480px;display:flex;flex-direction:column}
+    .sidebar h3{margin:6px 0 12px 0;color:var(--accent-2);font-size:15px}
+    .stats{font-size:13px;color:var(--muted);line-height:1.6;flex:1;overflow:auto}
+    .analyse-row{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+    .fileinput{display:flex;gap:8px}
+
+    /* Main grid 2x2 */
+    .main-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:var(--gap);}
+    .panel{background:var(--panel-bg);border-radius:12px;padding:10px;position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.03);min-height:240px;display:flex;flex-direction:column}
+    .panel .title{font-size:13px;color:var(--muted);padding:6px 0}
+    .viewer{flex:1;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    img.canvas-img{max-width:100%;max-height:100%;transform-origin:center center;transition:transform .12s linear;cursor:grab}
+    .viewer.dragging img.canvas-img{cursor:grabbing}
+
+    /* STATIC scale control placed at top-right (not movable) */
+    .scale-control{position:absolute;right:12px;top:12px;background:rgba(2,6,23,0.6);padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);backdrop-filter:blur(6px);user-select:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+    .scale-control .label{font-size:12px;color:var(--muted)}
+    .scale-control input[type=range]{width:150px}
+
+    /* small footer instructions */
+    .hint{font-size:12px;color:var(--muted);margin-top:10px}
+
+    /* responsive */
+    @media (max-width:980px){
+      .container{grid-template-columns:1fr;padding:12px}
+      .sidebar{order:2}
+      .main-grid{order:1;grid-template-columns:1fr 1fr}
+    }
+    @media (max-width:640px){
+      .main-grid{grid-template-columns:1fr;grid-template-rows:repeat(4,220px)}
+      .sidebar{min-height:160px}
+      .scale-control input[type=range]{width:100px}
+    }
+
+    /* small helpers */
+    .muted{color:var(--muted)}
+    .count-box{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);margin-top:10px}
+    .sizes-list{margin-top:10px;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+  <!-- Left controls -->
+  <div class="header-left" style="display:flex;gap:8px;align-items:center">
+    <div class="dropdown">
+  <button class="btn">FILE ▾</button>
+  <div class="dropdown-content">
+    <a href="#">New</a>
+    <a href="#">Open</a>
+    <a href="#">Open recent</a>
+    <a href="#">History</a>
+    <a href="#">Save as</a>
+    <a href="#">Save</a>
+    <a href="#">Exit</a>
+  </div>
+</div>
+
+    <div class="plot-btn-wrapper" style="position:relative">
+      <button class="btn">PLOT</button>
+      <div class="plot-preview">
+        <img src="https://quickchart.io/chart?c={type:'line',data:{labels:[1,2,3],datasets:[{data:[3,2,5]}]}}" alt="Line graph">
+        <img src="https://quickchart.io/chart?c={type:'bar',data:{labels:['A','B','C'],datasets:[{data:[5,3,8]}]}}" alt="Bar graph">
+        <img src="https://quickchart.io/chart?c={type:'pie',data:{labels:['X','Y','Z'],datasets:[{data:[30,20,50]}]}}" alt="Pie chart">
+      </div>
+    </div>
+    <button class="btn">EXPORT</button>
+  </div>
+
+  <!-- Center big title -->
+  <h1 class="app-title">NYXPERT</h1>
+
+  <!-- Right controls -->
+  <div class="header-right">
+    <button class="btn">Edit</button>
+    <!-- Help Button -->
+    <button class="btn" id="helpBtn">Help</button>
+
+    <!-- Modal -->
+    <div id="pdfModal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <iframe src="instructions.pdf" width="100%" height="600px"></iframe>
+        <h2>Help</h2>
+        <p>Help panel will be available soon</p>
+      </div>
+    </div>
+
+  </div>
+</header>
+  <div class="toolbar">
+    <div class="chip">zoom</div>
+    <div class="chip">move</div>
+    <div class="chip">size</div>
+    <div class="chip">graph</div>
+    <div class="chip">polymer</div>
+  </div>
+
+  <div class="container">
+    <aside class="sidebar">
+      <h3>Live Analysis</h3>
+      <div class="stats">
+        <div><strong>Particle count:</strong></div>
+        <div class="count-box" id="particleCount">No data</div>
+
+        <div id="particleSizes" class="sizes-list" style="display:none;">
+          <div><strong>Size distribution (µm):</strong></div>
+          <div id="sizesList"></div>
+        </div>
+
+        <div class="hint" id="hintText">Click <strong>Analyse</strong> to run live preview.</div>
+      </div>
+
+      <div class="analyse-row">
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <button id="analyseBtn" class="btn primary">Analyse</button>
+        </div>
+      </div>
+    </aside>
+
+    <main style="min-height:480px">
+      <div class="main-grid">
+        <section class="panel" data-panel="0" id="panel0">
+          <div class="title">Original</div>
+          <div class="viewer" data-panel="0">
+            <img class="canvas-img" id="img0" alt="Original preview" draggable="false" />
+          </div>
+          <div class="scale-control" data-panel="0">
+            <div class="label">Scale</div>
+            <input type="range" min="0.2" max="3" step="0.01" value="1" data-panel="0" class="scaleRange" />
+          </div>
+        </section>
+
+        <section class="panel" data-panel="1" id="panel1">
+          <div class="title">Spectral Phasor Mapping</div>
+          <div class="viewer" data-panel="1">
+            <img class="canvas-img" id="img1" alt="Spectral preview" draggable="false" />
+          </div>
+          <div class="scale-control" data-panel="1">
+            <div class="label">Scale</div>
+            <input type="range" min="0.2" max="3" step="0.01" value="1" data-panel="1" class="scaleRange" />
+          </div>
+        </section>
+
+        <section class="panel" data-panel="2" id="panel2">
+          <div class="title">Lifetime Phasor Mapping</div>
+          <div class="viewer" data-panel="2">
+            <img class="canvas-img" id="img2" alt="Lifetime preview" draggable="false" />
+          </div>
+          <div class="scale-control" data-panel="2">
+            <div class="label">Scale</div>
+            <input type="range" min="0.2" max="3" step="0.01" value="1" data-panel="2" class="scaleRange" />
+          </div>
+        </section>
+
+        <section class="panel" data-panel="3" id="panel3">
+          <div class="title">Grayscale</div>
+          <div class="viewer" data-panel="3">
+            <img class="canvas-img" id="img3" alt="Grayscale preview" draggable="false" />
+          </div>
+          <div class="scale-control" data-panel="3">
+            <div class="label">Scale</div>
+            <input type="range" min="0.2" max="3" step="0.01" value="1" data-panel="3" class="scaleRange" />
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const modal = document.getElementById("pdfModal");
+    const btn = document.getElementById("helpBtn");
+    const span = modal.querySelector(".close");
+
+    btn.onclick = () => { modal.style.display = "block"; };
+    span.onclick = () => { modal.style.display = "none"; };
+    window.onclick = (e) => { if (e.target === modal) modal.style.display = "none"; };
+
+    document.querySelectorAll('.dropdown .btn').forEach(button => {
+    button.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const parent = this.parentElement;
+      parent.classList.toggle('show');
+
+      // Close other dropdowns if open
+      document.querySelectorAll('.dropdown').forEach(d => {
+        if (d !== parent) d.classList.remove('show');
+      });
+    });
+  });
+
+  // Close dropdown if clicking outside
+  window.addEventListener('click', () => {
+    document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('show'));
+  });
+
+/* -------------------------
+   Size overlay toggle + responsive positioning
+   (Drop-in replacement script; does not change HTML/CSS)
+   ------------------------- */
+
+const sizeBtn = document.querySelector('.chip:nth-child(3)'); // "size" chip
+let overlaysVisible = false;
+let overlayData = null;      // store last fetched /sizes JSON
+let overlayContainer = null; // DOM node holding overlay boxes
+let imageMeta = null;        // { image_w, image_h } from /sizes
+
+// store transforms and positions (existing)
+const state = [...Array(4)].map(() => ({ scale: 1, offsetX: 0, offsetY: 0 }));
+
+// Helper: ensure overlay container exists inside panel0.viewer
+function ensureOverlayContainer() {
+  const panelViewer = document.querySelector('#panel0 .viewer');
+  const img = document.getElementById('img0');
+  if (!panelViewer || !img) return;
+
+  if (!overlayContainer) {
+    overlayContainer = document.createElement('div');
+    overlayContainer.style.position = 'absolute';
+    overlayContainer.style.left = '0px';
+    overlayContainer.style.top = '0px';
+    overlayContainer.style.width = '0px';
+    overlayContainer.style.height = '0px';
+    overlayContainer.style.pointerEvents = 'none';
+    overlayContainer.style.overflow = 'visible';
+    overlayContainer.style.transformOrigin = getComputedStyle(img).transformOrigin || 'center center';
+    panelViewer.style.position = 'relative'; // ensure parent positioned
+    panelViewer.appendChild(overlayContainer);
+  }
+  updateOverlayContainer(); // sync size/transform to image
+}
+
+// Keep overlayContainer positioned/ sized to match image's layout box,
+// and then apply the same CSS transform string as the image so both move/scale together.
+function updateOverlayContainer() {
+  if (!overlayContainer) return;
+  const img = document.getElementById('img0');
+  const viewer = document.querySelector('#panel0 .viewer');
+  if (!img || !viewer) return;
+
+  // Position overlay container over the image's layout rectangle inside the viewer.
+  // Use getBoundingClientRect to compute position relative to the viewer.
+  const imgRect = img.getBoundingClientRect();
+  const viewRect = viewer.getBoundingClientRect();
+
+  // left/top relative to viewer
+  const left = imgRect.left - viewRect.left;
+  const top = imgRect.top - viewRect.top;
+
+  // set container to the image's untransformed layout size
+  overlayContainer.style.left = `${left}px`;
+  overlayContainer.style.top = `${top}px`;
+  overlayContainer.style.width = `${img.clientWidth}px`;
+  overlayContainer.style.height = `${img.clientHeight}px`;
+
+  // copy transform and transformOrigin from image so overlays scale/pan identically
+  overlayContainer.style.transform = img.style.transform || 'none';
+  overlayContainer.style.transformOrigin = window.getComputedStyle(img).transformOrigin || 'center center';
+}
+
+// Remove overlays
+function clearOverlays() {
+  if (overlayContainer) overlayContainer.innerHTML = '';
+  overlaysVisible = false;
+}
+
+// Build DOM boxes from overlayData (uses particle coords in original image pixels)
+// Boxes are positioned relative to the overlayContainer's untransformed coordinate system
+function buildOverlays() {
+  if (!overlayData || !imageMeta) return;
+  ensureOverlayContainer();
+  overlayContainer.innerHTML = ''; // clear old
+
+  overlayData.forEach((p, i) => {
+    const box = document.createElement('div');
+    box.className = 'overlay-box';
+    box.dataset.idx = i;
+    box.style.position = 'absolute';
+    box.style.left = '0px';
+    box.style.top = '0px';
+    box.style.width = '10px';
+    box.style.height = '10px';
+    box.style.border = '1px solid #00ff00';
+    box.style.boxSizing = 'border-box';
+    box.style.background = 'rgba(0,0,0,0.0)';
+    box.style.color = '#00ff00';
+    box.style.fontSize = '11px';
+    box.style.lineHeight = '1';
+    box.style.padding = '2px 4px';
+    box.style.pointerEvents = 'none';
+    box.style.whiteSpace = 'nowrap';
+    box.style.transformOrigin = 'top left';
+
+    const label = document.createElement('div');
+    label.innerText = `${(p.size_mm * 1000).toFixed(1)} µm`;
+    label.style.fontSize = '11px';
+    label.style.color = '#00ff00';
+    label.style.textShadow = '0 0 2px rgba(0,0,0,0.8)';
+    label.style.position = 'absolute';
+    label.style.left = '2px';
+    label.style.top = '-14px';
+    label.style.background = 'rgba(0,0,0,0.45)';
+    label.style.padding = '2px 6px';
+    label.style.borderRadius = '4px';
+    label.style.pointerEvents = 'none';
+
+    box.appendChild(label);
+    overlayContainer.appendChild(box);
+  });
+
+  overlaysVisible = true;
+  updateOverlays();
+}
+
+// Update boxes positions/sizes. Because overlayContainer copies the img CSS transform,
+// boxes only need to be positioned in the overlayContainer local coordinates (untransformed).
+function updateOverlays() {
+  if (!overlaysVisible || !overlayData || !imageMeta || !overlayContainer) return;
+  const img = document.getElementById('img0');
+  if (!img || !img.naturalWidth) return;
+
+  // Ensure overlay container matches image layout and transform
+  updateOverlayContainer();
+
+  const containerWidth = overlayContainer.clientWidth;   // untransformed width
+  const containerHeight = overlayContainer.clientHeight; // untransformed height
+
+  // mapping from original image pixels -> container (untransformed) pixels
+  const baseScaleX = containerWidth / imageMeta.image_w;
+  const baseScaleY = containerHeight / imageMeta.image_h;
+
+  const boxes = overlayContainer.querySelectorAll('.overlay-box');
+  overlayData.forEach((p, idx) => {
+    const box = boxes[idx];
+    if (!box) return;
+    const left = Math.round(p.x * baseScaleX);
+    const top = Math.round(p.y * baseScaleY);
+    const w = Math.max(2, Math.round(p.w * baseScaleX));
+    const h = Math.max(2, Math.round(p.h * baseScaleY));
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.width = `${w}px`;
+    box.style.height = `${h}px`;
+  });
+}
+
+/* -------------------------
+   sizeBtn click: toggle overlays (fetch /sizes when turning on)
+   ------------------------- */
+sizeBtn.addEventListener('click', async () => {
+  try {
+    if (overlaysVisible) {
+      // hide overlays
+      clearOverlays();
+      return;
+    }
+
+    // Ensure an image is loaded
+    const img = document.getElementById('img0');
+    if (!img || !img.complete || !img.naturalWidth) {
+      alert('Load an image first with Analyse');
+      return;
+    }
+
+    // fetch sizes from Flask
+    const res = await fetch('/sizes?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('Sizes fetch failed: ' + res.status);
+    const data = await res.json();
+    if (data.error) {
+      alert('Sizes endpoint error: ' + data.error);
+      return;
+    }
+
+    overlayData = data.particles;
+    imageMeta = { image_w: data.image_w, image_h: data.image_h };
+
+    buildOverlays();
+
+  } catch (err) {
+    console.error('Failed to toggle size overlays', err);
+    alert('Failed to fetch sizes: ' + err.message);
+  }
+});
+
+/* -------------------------
+   Analyse button: fetch annotated image + counts (kept behavior)
+   ------------------------- */
+const analyseBtn = document.getElementById('analyseBtn');
+
+analyseBtn.addEventListener('click', async () => {
+  try {
+    document.getElementById('particleCount').innerText = 'Fetching snapshot...';
+    const imgResp = await fetch('/capture?ts=' + Date.now(), { cache: 'no-store' });
+    if (!imgResp.ok) throw new Error('Capture failed: ' + imgResp.status);
+    const imgBlob = await imgResp.blob();
+    const imgUrl = URL.createObjectURL(imgBlob);
+    const imgEl = document.getElementById('img0');
+    imgEl.src = imgUrl;
+    await new Promise(r => { imgEl.onload = r; imgEl.onerror = r; });
+
+    // reset panel transform
+    state[0].scale = 1; state[0].offsetX = 0; state[0].offsetY = 0;
+    document.querySelector('.scaleRange[data-panel="0"]').value = 1;
+    updateTransform(0);
+
+    const jsonResp = await fetch('/count?ts=' + Date.now(), { cache: 'no-store' });
+    if (!jsonResp.ok) throw new Error('Count failed: ' + jsonResp.status);
+    const data = await jsonResp.json();
+
+    document.getElementById('particleCount').innerText = data.particle_count;
+    const sizesList = document.getElementById('sizesList');
+    sizesList.innerHTML = data.sizes_mm.map(s => `<div>• ${s} µm</div>`).join('');
+    document.getElementById('particleSizes').style.display = 'block';
+
+    // if overlays were visible before Analyse, hide them (image changed)
+    if (overlaysVisible) clearOverlays();
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById('particleCount').innerText = 'Error';
+    alert('Analyse failed: ' + err.message + '. Check Flask server console and ensure it can reach the ESP32.');
+  }
+});
+
+/* -------------------------
+   Scale slider & pan handling (kept logic, but ensure overlays update)
+   ------------------------- */
+
+// scale ranges
+document.querySelectorAll('.scaleRange').forEach(range => {
+  range.addEventListener('input', e => {
+    const idx = Number(e.target.dataset.panel);
+    state[idx].scale = Number(e.target.value);
+    updateTransform(idx);
+  });
+});
+
+function updateTransform(idx) {
+  const img = document.getElementById('img' + idx);
+  if (!img) return;
+  const s = state[idx].scale;
+  const tx = state[idx].offsetX || 0;
+  const ty = state[idx].offsetY || 0;
+  img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+
+  // update overlay container & positions when panel0 changes
+  if (idx === 0) {
+    if (overlayContainer) updateOverlayContainer();
+    if (overlaysVisible) updateOverlays();
+  }
+}
+
+// Drag-to-pan inside viewer
+document.querySelectorAll('.viewer').forEach(v => {
+  const idx = Number(v.dataset.panel);
+  let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+  v.addEventListener('pointerdown', (ev) => {
+    const img = document.getElementById('img' + idx);
+    if (!img || !img.src) return;
+    dragging = true; v.classList.add('dragging');
+    startX = ev.clientX; startY = ev.clientY;
+    origX = state[idx].offsetX; origY = state[idx].offsetY;
+    v.setPointerCapture(ev.pointerId);
+  });
+  v.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    state[idx].offsetX = origX + dx;
+    state[idx].offsetY = origY + dy;
+    updateTransform(idx);
+  });
+  v.addEventListener('pointerup', (ev) => { dragging = false; v.classList.remove('dragging'); });
+  v.addEventListener('pointercancel', (ev) => { dragging = false; v.classList.remove('dragging'); });
+});
+
+// keyboard hints
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    state.forEach((s, idx) => { s.scale = 1; s.offsetX = 0; s.offsetY = 0; document.querySelector('.scaleRange[data-panel="' + idx + '"]').value = 1; updateTransform(idx) });
+  }
+});
+
+// window resize: recompute overlay container + positions
+window.addEventListener('resize', () => {
+  if (overlayContainer) updateOverlayContainer();
+  if (overlaysVisible) updateOverlays();
+});
+
+// prevent default image drag
+document.querySelectorAll('.canvas-img').forEach(i => { i.addEventListener('dragstart', e => e.preventDefault()) });
+
+// initial placeholder
+document.getElementById('img0').src = '';
+</script>
+</body>
+</html>
