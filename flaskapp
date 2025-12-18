@@ -1,0 +1,278 @@
+from flask import Flask, render_template, Response, jsonify
+import cv2
+import numpy as np
+import requests
+import os
+import time
+import math
+
+app = Flask(__name__)
+# --- Calibration ---
+PIXEL_TO_MICRON = 0.5
+MIN_SIZE_UM = 10
+MAX_SIZE_UM = 5000
+
+ESP32_HOST = "10.38.81.139"  # Replace with your ESP32-CAM IP
+
+COMMON_SNAPSHOT_PATHS = [
+    "/capture",
+    "/jpg",
+    "/photo",
+    "/snapshot",
+    "/cam-hi.jpg",
+    "/cam-lo.jpg",
+    "/stream.jpg"
+]
+
+# --- Local test image (if present, routes will use this image instead of ESP) ---
+# Put your local test image filename in the same folder as this script.
+# If the file exists, the Flask endpoints (/capture, /count, /sizes) will process
+# this file exactly the same way they would process an ESP snapshot.
+LOCAL_TEST_IMAGE = "testimg23.jpg"
+
+
+# -------------------------
+# Particle detection
+# -------------------------
+def process_image(frame):
+    """
+    Return:
+      frame_color: annotated BGR image (numpy array)
+      particle_count: int
+      sizes_mm: list of floats (diameter in mm)
+    """
+    # --- Use original color (no grayscale) ---
+    frame_color = frame.copy()
+
+    # Convert to HSV and take brightness channel only
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    _, _, v = cv2.split(hsv)
+
+    # --- Step 1: Contrast enhancement ---
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    v = clahe.apply(v)
+
+    # --- Step 2: Threshold for brightest spots only ---
+    _, thresh = cv2.threshold(v, 220, 255, cv2.THRESH_BINARY)
+
+    # --- Step 3: Morphology (remove isolated noise) ---
+    kernel = np.ones((2, 2), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # --- Step 4: Find contours ---
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    particle_count = 0
+    sizes_mm = []
+
+    for cnt in cnts:
+        area_px = cv2.contourArea(cnt)
+
+        if area_px < 2:
+            continue
+
+        x, y, w, h = cv2.boundingRect(cnt)
+
+        diameter_px = 2.0 * math.sqrt(area_px / math.pi)
+        diameter_um = diameter_px * PIXEL_TO_MICRON
+        diameter_mm = diameter_um / 1000.0
+
+        if diameter_um < MIN_SIZE_UM or diameter_um > MAX_SIZE_UM:
+            pass
+
+        particle_count += 1
+        sizes_mm.append(round(diameter_mm, 4))
+
+        # Draw bounding box only (removed size text) ✅
+        cv2.rectangle(frame_color, (x, y), (x + w, y + h), (0, 255, 0), 1)
+
+    # Overlay only particle count
+    cv2.putText(frame_color, f"Bright Particles: {particle_count}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+    return frame_color, particle_count, sizes_mm
+
+
+def compute_boxes_and_sizes(frame):
+    """
+    Run the same detection logic used in process_image but return a list of
+    dictionaries for each particle: {x,y,w,h, size_mm}.
+    This duplicates small part of detection but keeps existing endpoints untouched.
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    _, thresh = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY)
+    kernel = np.ones((2, 2), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    boxes = []
+    for cnt in cnts:
+        area_px = cv2.contourArea(cnt)
+        if area_px < 2:
+            continue
+        x, y, w, h = cv2.boundingRect(cnt)
+        diameter_px = 2.0 * math.sqrt(area_px / math.pi)
+        diameter_um = diameter_px * PIXEL_TO_MICRON
+        diameter_mm = diameter_um / 1000.0
+        boxes.append({
+            "x": int(x),
+            "y": int(y),
+            "w": int(w),
+            "h": int(h),
+            "size_mm": round(float(diameter_mm), 6)
+        })
+    return boxes
+
+
+# -------------------------
+# Snapshot loader
+# -------------------------
+def _try_snapshot_paths(host: str, timeout=3):
+    for path in COMMON_SNAPSHOT_PATHS:
+        url = f"http://{host}{path}"
+        try:
+            print(f"[cam] Trying snapshot URL: {url}")
+            r = requests.get(url, timeout=timeout)
+            if r.status_code != 200:
+                print(f"[cam] {url} -> HTTP {r.status_code}")
+                continue
+            ct = r.headers.get("Content-Type", "")
+            if not r.content or len(r.content) < 100:
+                print(f"[cam] {url} -> Response too small: {len(r.content)} bytes")
+                continue
+            arr = np.frombuffer(r.content, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                print(f"[cam] {url} -> imdecode returned None")
+                continue
+            print(f"[cam] {url} -> OK ({frame.shape[1]}x{frame.shape[0]})")
+            return frame
+        except requests.RequestException as e:
+            print(f"[cam] {url} -> Request error: {e}")
+        except Exception as e:
+            print(f"[cam] {url} -> Decode error: {e}")
+    return None
+
+
+def _try_mjpeg_frame(host: str, timeout=5):
+    stream_url = f"http://{host}:81/stream"
+    try:
+        print(f"[cam] Trying MJPEG stream: {stream_url}")
+        cap = cv2.VideoCapture(stream_url)
+        start = time.time()
+        frame = None
+        while time.time() - start < timeout:
+            ok, frm = cap.read()
+            if ok and frm is not None:
+                frame = frm
+                break
+            time.sleep(0.1)
+        cap.release()
+        if frame is None:
+            print(f"[cam] {stream_url} -> No frame read within {timeout}s")
+            return None
+        print(f"[cam] {stream_url} -> OK ({frame.shape[1]}x{frame.shape[0]})")
+        return frame
+    except Exception as e:
+        print(f"[cam] {stream_url} -> Error: {e}")
+        return None
+
+
+def _load_local_test_image_if_available():
+    """
+    If LOCAL_TEST_IMAGE exists in the same folder, load and return the CV2 frame.
+    Otherwise return None.
+    """
+    if LOCAL_TEST_IMAGE and os.path.exists(LOCAL_TEST_IMAGE):
+        frame = cv2.imread(LOCAL_TEST_IMAGE)
+        if frame is None:
+            print(f"[local] Found {LOCAL_TEST_IMAGE} but cv2.imread returned None")
+            return None
+        print(f"[local] Loaded local test image: {LOCAL_TEST_IMAGE} ({frame.shape[1]}x{frame.shape[0]})")
+        return frame
+    return None
+
+
+def get_snapshot():
+    """
+    Try local test image first (if present). If not present, behave exactly as before:
+    try known snapshot paths on ESP32_HOST, then MJPEG stream.
+    """
+    # 1) If a local test image exists, return it (this makes the web UI behave exactly the same
+    #    as it would when the ESP returns an image, but using a local file).
+    frame = _load_local_test_image_if_available()
+    if frame is not None:
+        return frame
+
+    # 2) Otherwise fall back to original ESP behaviour
+    frame = _try_snapshot_paths(ESP32_HOST, timeout=3)
+    if frame is not None:
+        return frame
+    frame = _try_mjpeg_frame(ESP32_HOST, timeout=5)
+    if frame is not None:
+        return frame
+
+    print("[cam] Failed to fetch image from any known endpoints")
+    return None
+
+
+# -------------------------
+# Flask routes
+# -------------------------
+@app.route('/')
+def index():
+    return render_template("index1.html")
+
+
+@app.route('/capture')
+def capture():
+    frame = get_snapshot()
+    if frame is None:
+        return jsonify({"error": "Could not fetch snapshot"})
+    processed_img, count, sizes = process_image(frame)
+    _, buffer = cv2.imencode('.jpg', processed_img)
+    return Response(buffer.tobytes(), mimetype='image/jpeg')
+
+
+@app.route('/count')
+def count_api():
+    frame = get_snapshot()
+    if frame is None:
+        return jsonify({"error": "Could not fetch snapshot"})
+    _, cnt, sizes = process_image(frame)
+    # Return sizes in mm (rounded) + particle count
+    return jsonify({
+        "particle_count": cnt,
+        "sizes_mm": sizes  # list of floats
+    })
+
+
+@app.route('/sizes')
+def sizes_api():
+    """
+    Returns JSON with list of bounding boxes and sizes for the current snapshot.
+    This is additive only — it doesn't change /capture or /count.
+    Response: { image_w, image_h, particles: [{x,y,w,h,size_mm}, ...] }
+    """
+    frame = get_snapshot()
+    if frame is None:
+        return jsonify({"error": "Could not fetch snapshot"}), 500
+
+    boxes = compute_boxes_and_sizes(frame)
+    # include image size (width/height) so frontend can correctly scale overlays
+    h, w = frame.shape[:2]
+    return jsonify({
+        "image_w": int(w),
+        "image_h": int(h),
+        "particles": boxes
+    })
+
+
+if __name__ == "__main__":
+    host = "0.0.0.0"
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting Flask on http://127.0.0.1:{port} (local) and http://{host}:{port} (network) ...")
+    app.run(host=host, port=port, debug=True)
