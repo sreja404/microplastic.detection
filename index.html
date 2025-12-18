@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ESP32-CAM Particle Detection</title>
+  <style>
+    :root{
+      --bg:#0b0b0d;
+      --card:#0f1720;
+      --accent:#16a34a; /* green */
+      --muted:#9ca3af;
+      --glass: rgba(255,255,255,0.04);
+      --accent-contrast: #ffffff;
+      --nav-bg: #06d6a0;
+      --side-width: 180px;
+      --radius: 12px;
+      --shadow: 0 6px 20px rgba(2,6,23,0.6);
+      --transition: 180ms ease;
+      font-size: 16px;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    /* base */
+    html,body{
+      height:100%;
+      margin:0;
+      background: linear-gradient(180deg,var(--bg), #071018 140%);
+      color: #e6eef8;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    /* container & header */
+    body{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:20px;
+      box-sizing:border-box;
+      gap:12px;
+    }
+
+    h1{
+      margin:0;
+      font-size:clamp(1.15rem,2.2vw,1.6rem);
+      letter-spacing:0.2px;
+      font-weight:600;
+      color:var(--accent-contrast);
+      text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+    }
+
+    p{
+      margin:0;
+      color:var(--muted);
+      font-size:0.95rem;
+    }
+
+    /* image snapshot */
+    /* REPLACE only the existing #snapshot rule with this block */
+#snapshot{
+  display: block;
+  margin: 0 auto;
+  /* limit image size to 40% of viewport (both axes) while preserving aspect ratio */
+  max-width: 60vw;
+  max-height: 60vh;
+  width: auto;
+  height: auto;
+
+  /* visual styling preserved from your original */
+  border-radius: 12px;
+  border: 1.5px solid rgba(22,163,74,0.18);
+  box-shadow: var(--shadow);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+
+  /* ensure the whole image is visible (no cropping) */
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  image-rendering: auto;
+  position: relative; /* keeps getBoundingClientRect overlay math compatible */
+}
+
+/* small-screen tweaks so the preview remains usable */
+@media (max-width:900px){
+  #snapshot {
+    max-width: 60vw;
+    max-height: 60vh;
+  }
+}
+@media (max-width:640px){
+  #snapshot {
+    max-width: 64vw;
+    max-height: 64vh;
+  }
+}
+
+
+    /* count */
+    #count{
+      display:inline-block;
+      min-width:64px;
+      text-align:center;
+      font-weight:600;
+      color:var(--accent-contrast);
+      background: rgba(22,163,74,0.08);
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(22,163,74,0.12);
+      margin-left:8px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* nav (bottom) */
+    nav[role="navigation"]{
+      position:fixed;
+      left:12px;
+      right:12px;
+      bottom:12px;
+      padding:10px;
+      box-sizing:border-box;
+      background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+      border-radius:14px;
+      backdrop-filter: blur(6px) saturate(120%);
+      border:1px solid rgba(255,255,255,0.03);
+      z-index:2000;
+      max-width:1200px;
+      margin:0 auto;
+    }
+
+    nav .nav-inner{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+    }
+
+    /* primary action */
+    #analyse{
+      height:48px;
+      padding:10px 18px;
+      font-size:14px;
+      margin:0;
+      cursor:pointer;
+      border-radius:999px;
+      border: none;
+      background: linear-gradient(180deg,var(--accent), #0a7a33);
+      color:var(--accent-contrast);
+      box-shadow: 0 6px 18px rgba(16,124,60,0.18);
+      transition: transform var(--transition), box-shadow var(--transition), background var(--transition);
+    }
+    #analyse:hover{
+      transform: translateY(-2px);
+      background: yellow;
+      color: black;
+    }
+
+    /* other nav buttons - look like links but accessible */
+    nav button[aria-label]{
+      flex:1;
+      padding:10px 12px;
+      font-size:14px;
+      border-radius:8px;
+      background:transparent;
+      border: none;
+      cursor:pointer;
+      color:var(--muted);
+      text-decoration: underline;
+      text-align:center;
+    }
+    nav button[aria-label]:hover{
+      background: rgba(255,255,255,0.02);
+      color:black;
+      text-decoration: none;
+      color: black;
+    }
+
+    /* side menu */
+    #sideMenu{
+      position: fixed;
+      top:50px;
+      left:12px;
+      width: var(--side-width);
+      padding:12px;
+      box-sizing:border-box;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:12px;
+      box-shadow: 0 12px 30px rgba(2,6,23,0.6);
+      border:1px solid rgba(255,255,255,0.03);
+      z-index:1500;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      align-items:center;
+    }
+
+    #sideMenu button{
+      width:100%;
+      height:90px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      padding:8px;
+      font-size:13px;
+      border-radius:12px;
+      border:none;
+      background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));
+      color: #6b7280;
+      cursor:pointer;
+      transition: transform var(--transition), background var(--transition), color var(--transition);
+    }
+    #sideMenu button:hover{
+      background: rgba(255,255,255,0.03);
+      color: black;
+      transform: translateY(-3px);
+    }
+
+    /* icons inside buttons (keeps svg consistent) */
+    #sideMenu svg{
+      display:block;
+      width:28px;
+      height:28px;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+    }
+
+    /* pdf overlay popup */
+    #pdfOverlay{
+      display:none;
+      position:fixed;
+      inset:0;
+      background: rgba(2,6,23,0.75);
+      z-index:9999;
+      padding:24px;
+      box-sizing:border-box;
+      align-items:center;
+      justify-content:center;
+      overflow:auto;
+    }
+    #pdfPopup{
+      width:clamp(320px,90%,1200px);
+      height:clamp(320px,85vh,1000px);
+      background:white;
+      border-radius:12px;
+      overflow:hidden;
+      position:relative;
+      box-shadow: 0 18px 60px rgba(2,6,23,0.6);
+    }
+    #closeBtn{
+      position:absolute;
+      right:12px;
+      top:6px;
+      font-size:26px;
+      cursor:pointer;
+      color:#333;
+      z-index:10001;
+      user-select:none;
+    }
+    #pdfPreview{
+      width:100%;
+      height:100%;
+      border:none;
+      display:block;
+    }
+
+    /* overlays for detection boxes */
+    .size-label{
+      position:absolute;
+      background: rgba(0,0,0,0.75);
+      color:#fff;
+      padding:4px 6px;
+      font-size:12px;
+      border-radius:6px;
+      pointer-events:none;
+      white-space:nowrap;
+      transform: translate(-50%, -110%);
+      border: 1px solid rgba(255,255,255,0.08);
+      z-index:10001;
+    }
+    .overlay-box{
+      position:absolute;
+      border: 1px dashed rgba(22,163,74,0.95);
+      pointer-events:none;
+      box-sizing:border-box;
+      z-index:10000;
+      border-radius:6px;
+    }
+
+    /* helpers for small screens */
+    @media (max-width:900px){
+      #sideMenu{
+        left:10px;
+        top:72px;
+        --side-width:160px;
+      }
+      #sideMenu button{
+        height:84px;
+      }
+      nav .nav-inner{
+        gap:6px;
+      }
+      #analyse{
+        padding:10px 12px;
+        height:44px;
+        font-size:13px;
+      }
+    }
+
+    @media (max-width:640px){
+      #sideMenu{
+        left:8px;
+        top:auto;
+        bottom:86px;
+        width:56px;
+        padding:8px;
+        border-radius:12px;
+      }
+      #sideMenu button{
+        width:44px;
+        height:44px;
+        padding:6px;
+        font-size:11px;
+        border-radius:10px;
+      }
+      /* hide text in very compact side buttons by forcing svg-only visual */
+      #sideMenu button svg{ width:20px;height:20px; }
+      #sideMenu button:has(svg) { text-indent: -9999px; overflow: hidden; }
+      nav[role="navigation"]{ left:6px; right:6px; bottom:6px; padding:8px; }
+      h1{ font-size:1.1rem; }
+    }
+  </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <h1>NYXPERT</h1>
+  <p>Total Particles: <span id="count">--</span></p>
+  <img id="snapshot" src="" alt="Snapshot from ESP32-CAM" />
+
+  <!-- SVG filter to make white transparent -->
+  <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <defs>
+      <filter id="whiteToAlpha">
+        <feColorMatrix type="matrix" values="
+           0.2126 0.7152 0.0722 0 0
+           0.2126 0.7152 0.0722 0 0
+           0.2126 0.7152 0.0722 0 0
+           0      0      0      1 0" result="lum"/>
+        <feComponentTransfer in="lum" result="alpha">
+          <feFuncA type="table" tableValues="0 0 1"/>
+        </feComponentTransfer>
+        <feComposite in="SourceGraphic" in2="alpha" operator="arithmetic" k1="0" k2="1" k3="0" k4="0"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div id="sideMenu" style="position: fixed; top: 50px; left: 0; width: 180px; height: fit-content;">
+    <button onclick="toggleSlide()" style="width: 150px; height: 110px; display: block; margin-bottom: 5px;">Show Sizes</button>
+
+    <button onclick="toggleSlide()" style="width: 150px; height: 110px; display: block; margin-bottom: 5px; color:grey;">
+      Polymer Type
+      <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <image href="{{ url_for('static', filename='icons/icon1.jpg') }}"
+               width="24" height="24" style="filter:url(#whiteToAlpha);" />
+      </svg>
+    </button>
+
+    <button onclick="toggleSlide()" style="width: 150px; height: 110px; display: block; margin-bottom: 5px; color: grey;">
+      Zoom Tool
+      <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <image href="{{ url_for('static', filename='icons/icon2.jpg') }}"
+               width="24" height="24" style="filter:url(#whiteToAlpha);" />
+      </svg>
+    </button>
+
+    <button onclick="generatepdf()" style="width: 150px; height: 110px; display: block; margin-bottom: 5px;">
+      Download Analysis Sheet
+      <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <image href="{{ url_for('static', filename='icons/icon3.jpg') }}"
+               width="24" height="24" style="filter:url(#whiteToAlpha);" />
+      </svg>
+    </button>
+  </div>
+
+  <nav
+    role="navigation"
+    aria-label="Bottom actions"
+    style="position:fixed;left:0;right:0;bottom:0;padding:8px 12px;box-sizing:border-box;background:#0dfbc0;box-shadow:0 -1px 4px rgba(0,0,0,0.08);">
+    <div class="nav-inner" style="max-width:1200px;margin:0 auto;display:flex;gap:8px;justify-content:space-between;align-items:center;">
+      <button type="button" aria-label="Action 1" style="flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:6px;background: transparent;border:none; cursor:pointer;color: grey;text-decoration: underline;">Pie Chart</button>
+      <button type="button" aria-label="Action 2" style="flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:6px;background:transparent;border:none;cursor:pointer;color:grey;text-decoration: underline;">Edit</button>
+      <button id="analyse" onclick="refreshImage()">Analyse</button>
+      <button type="button" aria-label="Action 4" style="flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:6px;background:transparent;border:none;cursor:pointer;color: grey;text-decoration: underline;">Show Microns</button>
+      <button type="button" aria-label="Action 5" style="flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:6px;background:transparent;border:none;cursor:pointer; color:grey;text-decoration: underline;">Help</button>
+    </div>
+  </nav>
+
+  <!-- PDF Preview Popup Overlay -->
+  <div id="pdfOverlay">
+    <div id="pdfPopup">
+      <span id="closeBtn">&times;</span>
+      <iframe id="pdfPreview" src=""></iframe>
+    </div>
+  </div>
+
+  <script>
+    function refreshImage() {
+      document.getElementById("snapshot").src = "/capture?" + new Date().getTime();
+      fetch("/count")
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById("count").innerText = data.particle_count;
+        }).catch(err => {
+          console.error("Count fetch error:", err);
+        });
+    }
+
+    function resetDisplay() {
+      document.getElementById("snapshot").src = "";
+      document.getElementById("count").innerText = "--";
+      removeOverlays();
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener("keydown", function(event) {
+      if (event.code === "Space") {
+        event.preventDefault(); // prevent page scroll
+        refreshImage();
+      } else if (event.code === "Escape") {
+        resetDisplay();
+      }
+    });
+
+    async function generatepdf() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text("Not Implemented yet", 20, 20);
+      doc.text("SOON", 20, 30);
+
+      const pdfBlob = doc.output('blob');
+      const pdfBlobUrl = URL.createObjectURL(pdfBlob);
+
+      const iframe = document.getElementById('pdfPreview');
+      iframe.src = pdfBlobUrl;
+
+      // Show popup overlay
+      document.getElementById('pdfOverlay').style.display = 'flex';
+
+      document.getElementById("closeBtn").onclick = function () {
+        document.getElementById("pdfOverlay").style.display = 'none';
+        document.getElementById("pdfPreview").src = "";
+      };
+    }
+
+    // helper to remove any existing overlay
+    function removeOverlays() {
+      const existing = document.getElementById("sizesOverlayRoot");
+      if (existing) existing.remove();
+    }
+
+    // toggleSlide was already wired to the "Show Sizes" button;
+    // we repurpose it to toggle the overlay on/off while keeping the HTML intact.
+    let sizesOverlayVisible = false;
+    function toggleSlide() {
+      if (sizesOverlayVisible) {
+        removeOverlays();
+        sizesOverlayVisible = false;
+        return;
+      }
+      showSizes();
+      sizesOverlayVisible = true;
+    }
+
+    // main function: fetch /sizes and draw overlay boxes + labels scaled to displayed image
+    async function showSizes() {
+      removeOverlays();
+
+      try {
+        const res = await fetch("/sizes");
+        const data = await res.json();
+        if (data.error) {
+          alert("Error fetching sizes: " + data.error);
+          return;
+        }
+        const particles = data.particles || [];
+        const img = document.getElementById("snapshot");
+
+        // refresh snapshot so it matches the boxes (optional but recommended)
+        img.src = "/capture?" + new Date().getTime();
+
+        // wait for image to load to get displayed dimensions
+        await new Promise((resolve, reject) => {
+          if (img.complete && img.naturalWidth !== 0) resolve();
+          else {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error("Image load failed"));
+          }
+        });
+
+        // backend actual image size and displayed size
+        const imgNaturalW = data.image_w || img.naturalWidth;
+        const imgNaturalH = data.image_h || img.naturalHeight;
+        const displayedW = img.clientWidth;
+        const displayedH = img.clientHeight;
+
+        const scaleX = displayedW / imgNaturalW;
+        const scaleY = displayedH / imgNaturalH;
+
+        // create overlay container positioned on top of the image
+        const overlay = document.createElement("div");
+        overlay.id = "sizesOverlayRoot";
+        overlay.style.position = "absolute";
+        // position relative to page: use img bounding rect so it works if layout changes
+        const rect = img.getBoundingClientRect();
+        overlay.style.left = rect.left + window.scrollX + "px";
+        overlay.style.top = rect.top + window.scrollY + "px";
+        overlay.style.width = displayedW + "px";
+        overlay.style.height = displayedH + "px";
+        overlay.style.pointerEvents = "none";
+        overlay.style.zIndex = 10000;
+        document.body.appendChild(overlay);
+
+        // draw boxes and labels
+        particles.forEach((p, idx) => {
+          const sx = p.x * scaleX;
+          const sy = p.y * scaleY;
+          const sw = p.w * scaleX;
+          const sh = p.h * scaleY;
+
+          const box = document.createElement("div");
+          box.className = "overlay-box";
+          box.style.left = sx + "px";
+          box.style.top = sy + "px";
+          box.style.width = Math.max(2, sw) + "px";
+          box.style.height = Math.max(2, sh) + "px";
+          overlay.appendChild(box);
+
+          const label = document.createElement("div");
+          label.className = "size-label";
+          const lx = sx + sw / 2;
+          const ly = sy; // top of box; CSS transform moves it above
+          label.style.left = lx + "px";
+          label.style.top = ly + "px";
+
+          // Safely format size value if present; fallback to index label.
+          if (typeof p.size_mm !== "undefined" && p.size_mm !== null && !isNaN(Number(p.size_mm))) {
+            label.innerText = Number(p.size_mm).toFixed(4) + " mm";
+          } else {
+            label.innerText = "#" + (idx + 1);
+          }
+
+          overlay.appendChild(label);
+        });
+
+        // update numeric counter to match overlay count
+        const countElement = document.getElementById("count");
+        if (countElement) countElement.innerText = particles.length;
+
+        // hide overlay if user presses ESC (convenience)
+        const escHandler = (e) => {
+          if (e.key === "Escape") {
+            removeOverlays();
+            sizesOverlayVisible = false;
+            document.removeEventListener("keydown", escHandler);
+          }
+        };
+        document.addEventListener("keydown", escHandler);
+
+      } catch (err) {
+        console.error("showSizes error:", err);
+        alert("Failed to fetch sizes — check console.");
+      }
+    }
+  </script>
+</body>
+</html>
